@@ -145,12 +145,11 @@ const Auth = (() => {
         }
       });
     } catch (webAuthnErr) {
-      // Credencial não encontrada no dispositivo — limpa registro inválido
-      if (webAuthnErr.name === 'NotFoundError' || webAuthnErr.name === 'SecurityError') {
-        localStorage.removeItem(BIOMETRIC_KEY);
-        throw new Error('CREDENCIAL_INVALIDA');
-      }
-      throw webAuthnErr;
+      // NotAllowedError = usuário cancelou (não limpa credencial)
+      if (webAuthnErr.name === 'NotAllowedError') throw webAuthnErr;
+      // Qualquer outro erro = credencial inválida/não encontrada no dispositivo
+      localStorage.removeItem(BIOMETRIC_KEY);
+      throw new Error('CREDENCIAL_INVALIDA');
     }
 
     // Biometria ok — verifica se ainda há sessão ativa
