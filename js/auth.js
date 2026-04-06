@@ -135,14 +135,23 @@ const Auth = (() => {
     const challenge = crypto.getRandomValues(new Uint8Array(32));
 
     // Abre o prompt de Face ID / digital
-    await navigator.credentials.get({
-      publicKey: {
-        challenge,
-        allowCredentials: [{ id: rawId, type: 'public-key' }],
-        userVerification: 'required',
-        timeout: 60000
+    try {
+      await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          allowCredentials: [{ id: rawId, type: 'public-key' }],
+          userVerification: 'required',
+          timeout: 60000
+        }
+      });
+    } catch (webAuthnErr) {
+      // Credencial não encontrada no dispositivo — limpa registro inválido
+      if (webAuthnErr.name === 'NotFoundError' || webAuthnErr.name === 'SecurityError') {
+        localStorage.removeItem(BIOMETRIC_KEY);
+        throw new Error('CREDENCIAL_INVALIDA');
       }
-    });
+      throw webAuthnErr;
+    }
 
     // Biometria ok — verifica se ainda há sessão ativa
     const { data: { session }, error } = await supabase.auth.getSession();

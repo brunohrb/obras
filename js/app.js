@@ -321,14 +321,20 @@ function setupLoginForm() {
     } catch (err) {
       if (err.message === 'SESSAO_EXPIRADA') {
         errEl.textContent = 'Sessão expirada. Faça login com senha para reativar a biometria.';
+        btn.classList.add('hidden');
+      } else if (err.message === 'CREDENCIAL_INVALIDA') {
+        errEl.textContent = 'Biometria desatualizada. Faça login com senha e reative o Face ID / Digital.';
+        btn.classList.add('hidden');
       } else if (err.name === 'NotAllowedError') {
         errEl.textContent = 'Biometria cancelada.';
+        btn.disabled = false;
+        btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="22" height="22"><path d="M12 2C8.5 2 6 4.5 6 8v1"/><path d="M12 22c3.5 0 6-2.5 6-6v-1"/><path d="M9 8.5A3.5 3.5 0 0115 12v2"/><path d="M9 15.5A3.5 3.5 0 019 12v-1"/><path d="M12 8v8"/><path d="M6 12H3"/><path d="M21 12h-3"/></svg> Entrar com Face ID / Digital`;
       } else {
         errEl.textContent = 'Erro na biometria. Use sua senha.';
+        btn.disabled = false;
+        btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="22" height="22"><path d="M12 2C8.5 2 6 4.5 6 8v1"/><path d="M12 22c3.5 0 6-2.5 6-6v-1"/><path d="M9 8.5A3.5 3.5 0 0115 12v2"/><path d="M9 15.5A3.5 3.5 0 019 12v-1"/><path d="M12 8v8"/><path d="M6 12H3"/><path d="M21 12h-3"/></svg> Entrar com Face ID / Digital`;
       }
       errEl.classList.remove('hidden');
-      btn.disabled = false;
-      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="22" height="22"><path d="M12 2C8.5 2 6 4.5 6 8v1"/><path d="M12 22c3.5 0 6-2.5 6-6v-1"/><path d="M9 8.5A3.5 3.5 0 0115 12v2"/><path d="M9 15.5A3.5 3.5 0 019 12v-1"/><path d="M12 8v8"/><path d="M6 12H3"/><path d="M21 12h-3"/></svg> Entrar com Face ID / Digital`;
     }
   });
 
