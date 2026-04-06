@@ -90,13 +90,19 @@ body {
   color: var(--text-secondary);
   cursor: pointer;
   margin-bottom: 12px;
+  -webkit-user-select: none;
   user-select: none;
+  touch-action: manipulation;
+  min-height: 44px;
+  padding: 4px 0;
 }
 .checkbox-label input[type="checkbox"] {
-  width: 18px; height: 18px;
+  width: 22px; height: 22px;
+  min-width: 22px;
   accent-color: var(--primary);
   cursor: pointer;
   flex-shrink: 0;
+  touch-action: manipulation;
 }
 
 /* Botão biometria */
