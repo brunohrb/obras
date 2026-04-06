@@ -1,16 +1,16 @@
 // Service Worker - Bandeira Obras PWA
 const CACHE_NAME = 'bandeira-obras-v1';
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/css/style.css',
-  '/js/config.js',
-  '/js/auth.js',
-  '/js/properties.js',
-  '/js/requests.js',
-  '/js/notifications.js',
-  '/js/app.js',
-  '/assets/logo.png',
+  './',
+  './index.html',
+  './css/style.css',
+  './js/config.js',
+  './js/auth.js',
+  './js/properties.js',
+  './js/requests.js',
+  './js/notifications.js',
+  './js/app.js',
+  './assets/logo.png',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js'
 ];
 
