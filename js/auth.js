@@ -6,13 +6,17 @@ const Auth = (() => {
   let currentUser = null;
   let currentProfile = null;
 
+  const SAVED_USER_KEY = 'bop_saved_user';
+  const BIOMETRIC_KEY  = 'bop_biometric_cred';
+
   // Converte nome de usuário simples para email interno
   function toEmail(username) {
-    if (username.includes('@')) return username; // já é email
+    if (username.includes('@')) return username;
     return `${username.toLowerCase().trim()}@bandeira.app`;
   }
 
-  // Login com usuário simples ou email
+  // ---- Autenticação por senha ----
+
   async function login(username, password) {
     const email = toEmail(username);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -20,15 +24,14 @@ const Auth = (() => {
     return data;
   }
 
-  // Logout
   async function logout() {
+    clearBiometric();
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
     currentUser = null;
     currentProfile = null;
   }
 
-  // Busca sessão atual
   async function getSession() {
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
@@ -38,53 +41,127 @@ const Auth = (() => {
     return session;
   }
 
-  // Carrega perfil do usuário
   async function loadProfile(userId) {
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single();
-    if (!error && data) {
-      currentProfile = data;
-    }
+    if (!error && data) currentProfile = data;
     return currentProfile;
   }
 
-  // Cria novo usuário (apenas admin/sócio)
   async function createUser(username, password, name, role) {
     const email = toEmail(username);
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        data: { name, role }
-      }
+      options: { data: { name, role } }
     });
     if (error) throw error;
 
-    // Cria perfil manualmente
     if (data.user) {
-      const { error: profileError } = await supabase.from('profiles').upsert({
-        id: data.user.id,
-        email,
-        name,
-        role
-      });
-      if (profileError) throw profileError;
+      await supabase.from('profiles').upsert({ id: data.user.id, email, name, role });
     }
+
+    if (data.user && !data.session) {
+      throw new Error('CONFIRM_EMAIL');
+    }
+
     return data;
   }
 
-  // Getters
-  function getUser() { return currentUser; }
-  function getProfile() { return currentProfile; }
-  function isLoggedIn() { return !!currentUser; }
-  function isResponsavel() { return currentProfile?.role === 'responsavel'; }
-  function isSocio() { return currentProfile?.role === 'socio'; }
-  function isAdmin() { return currentProfile?.role === 'socio'; } // sócios podem gerenciar
+  // ---- Lembrar usuário ----
 
-  // Listener de mudança de estado
+  function saveUsername(username) {
+    localStorage.setItem(SAVED_USER_KEY, username.toLowerCase().trim());
+  }
+
+  function getSavedUsername() {
+    return localStorage.getItem(SAVED_USER_KEY) || '';
+  }
+
+  function clearSavedUsername() {
+    localStorage.removeItem(SAVED_USER_KEY);
+  }
+
+  // ---- Biometria (WebAuthn) ----
+
+  async function isBiometricAvailable() {
+    if (!window.PublicKeyCredential) return false;
+    try {
+      return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    } catch { return false; }
+  }
+
+  function hasBiometricSaved() {
+    return !!localStorage.getItem(BIOMETRIC_KEY);
+  }
+
+  async function registerBiometric(username) {
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const userId = new TextEncoder().encode(username);
+
+    const cred = await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: { name: 'Bandeira Obras', id: location.hostname },
+        user: { id: userId, name: username, displayName: username },
+        pubKeyCredParams: [
+          { alg: -7, type: 'public-key' },   // ES256 (Face ID / digital)
+          { alg: -257, type: 'public-key' }   // RS256 (fallback)
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: 'platform', // biometria do próprio aparelho
+          userVerification: 'required',
+          residentKey: 'preferred'
+        },
+        timeout: 60000
+      }
+    });
+
+    // Salva o ID da credencial no localStorage
+    const rawId = btoa(String.fromCharCode(...new Uint8Array(cred.rawId)));
+    localStorage.setItem(BIOMETRIC_KEY, rawId);
+    return true;
+  }
+
+  // Verifica biometria e restaura a sessão Supabase existente
+  async function verifyBiometric() {
+    const rawIdStr = localStorage.getItem(BIOMETRIC_KEY);
+    if (!rawIdStr) throw new Error('SEM_BIOMETRIA');
+
+    const rawId = Uint8Array.from(atob(rawIdStr), c => c.charCodeAt(0));
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+
+    // Abre o prompt de Face ID / digital
+    await navigator.credentials.get({
+      publicKey: {
+        challenge,
+        allowCredentials: [{ id: rawId, type: 'public-key' }],
+        userVerification: 'required',
+        timeout: 60000
+      }
+    });
+
+    // Biometria ok — verifica se ainda há sessão ativa
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error || !session) {
+      localStorage.removeItem(BIOMETRIC_KEY); // limpa credencial expirada
+      throw new Error('SESSAO_EXPIRADA');
+    }
+
+    currentUser = session.user;
+    await loadProfile(session.user.id);
+    return { session };
+  }
+
+  function clearBiometric() {
+    localStorage.removeItem(BIOMETRIC_KEY);
+  }
+
+  // ---- Auth state listener ----
+
   function onAuthChange(callback) {
     return supabase.auth.onAuthStateChange(async (event, session) => {
       if (session) {
@@ -98,18 +175,19 @@ const Auth = (() => {
     });
   }
 
+  // ---- Getters ----
+  function getUser() { return currentUser; }
+  function getProfile() { return currentProfile; }
+  function isLoggedIn() { return !!currentUser; }
+  function isResponsavel() { return currentProfile?.role === 'responsavel'; }
+  function isSocio() { return currentProfile?.role === 'socio'; }
+  function isAdmin() { return currentProfile?.role === 'socio'; }
+
   return {
-    login,
-    logout,
-    getSession,
-    loadProfile,
-    createUser,
-    getUser,
-    getProfile,
-    isLoggedIn,
-    isResponsavel,
-    isSocio,
-    isAdmin,
+    login, logout, getSession, loadProfile, createUser,
+    saveUsername, getSavedUsername, clearSavedUsername,
+    isBiometricAvailable, hasBiometricSaved, registerBiometric, verifyBiometric, clearBiometric,
+    getUser, getProfile, isLoggedIn, isResponsavel, isSocio, isAdmin,
     onAuthChange
   };
 })();

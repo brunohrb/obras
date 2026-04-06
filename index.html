@@ -51,11 +51,30 @@
             </button>
           </div>
         </div>
+        <label class="checkbox-label">
+          <input type="checkbox" id="login-remember">
+          <span>Lembrar meu usuário</span>
+        </label>
         <div id="login-error" class="error-msg hidden"></div>
         <button type="submit" class="btn btn-primary btn-full" id="login-btn">
           <span>Entrar</span>
         </button>
       </form>
+
+      <!-- Botão biometria (aparece automaticamente se disponível) -->
+      <button class="btn-biometrico hidden" id="btn-biometrico">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="22" height="22">
+          <path d="M12 2C8.5 2 6 4.5 6 8v1"/>
+          <path d="M12 22c3.5 0 6-2.5 6-6v-1"/>
+          <path d="M9 8.5A3.5 3.5 0 0115 12v2"/>
+          <path d="M9 15.5A3.5 3.5 0 019 12v-1"/>
+          <path d="M12 8v8"/>
+          <path d="M6 12H3"/>
+          <path d="M21 12h-3"/>
+        </svg>
+        Entrar com Face ID / Digital
+      </button>
+
       <p class="login-footer">Bandeira Participações © 2025</p>
     </div>
   </div>
@@ -93,6 +112,10 @@
         </div>
       </div>
       <hr>
+      <button class="dropdown-item" id="menu-projetos">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
+        Grandes Obras
+      </button>
       <button class="dropdown-item" id="menu-imoveis">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
         Imóveis
@@ -168,9 +191,16 @@
       <div id="view-nova" class="view">
         <form id="form-nova" class="form-view">
           <div class="form-group">
-            <label>Imóvel *</label>
-            <select id="nova-imovel" required>
+            <label>Vincular a</label>
+            <div style="display:flex;gap:8px;margin-bottom:8px">
+              <button type="button" class="btn btn-primary btn-sm" id="tipo-imovel" onclick="setTipoNova('imovel')">Imóvel</button>
+              <button type="button" class="btn btn-outline btn-sm" id="tipo-projeto" onclick="setTipoNova('projeto')">Grande Obra</button>
+            </div>
+            <select id="nova-imovel">
               <option value="">Selecione o imóvel</option>
+            </select>
+            <select id="nova-projeto" class="hidden" style="margin-top:8px">
+              <option value="">Selecione a grande obra</option>
             </select>
           </div>
           <div class="form-group">
@@ -251,6 +281,29 @@
       <div id="view-usuarios" class="view">
         <div id="list-usuarios" class="usuarios-list"></div>
         <button class="fab" id="btn-novo-usuario">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>
+
+      <!-- VIEW: PROJETOS -->
+      <div id="view-projetos" class="view">
+        <div id="list-projetos"></div>
+        <button class="fab" id="btn-novo-projeto">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>
+
+      <!-- VIEW: DETALHE PROJETO (pendências do projeto) -->
+      <div id="view-projeto-detalhe" class="view">
+        <div id="projeto-detalhe-header" class="project-detalhe-header card"></div>
+        <div class="filter-tabs" id="filter-status-projeto" style="padding:0 0 12px;overflow-x:auto;display:flex;gap:6px">
+          <button class="filter-tab active" data-status="todos">Todas</button>
+          <button class="filter-tab" data-status="pendente">Pendentes</button>
+          <button class="filter-tab" data-status="em_andamento">Em andamento</button>
+          <button class="filter-tab" data-status="concluido">Concluídas</button>
+        </div>
+        <div id="list-projeto-pendencias"></div>
+        <button class="fab" id="btn-nova-pendencia-projeto">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
       </div>
@@ -356,6 +409,52 @@
     </div>
   </div>
 
+  <!-- Modal: Novo Projeto -->
+  <div id="modal-projeto" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-projeto-title">Nova Grande Obra</h3>
+        <button class="btn-icon" id="close-modal-projeto">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <form id="form-projeto">
+        <input type="hidden" id="projeto-edit-id">
+        <div class="form-group">
+          <label>Nome da obra *</label>
+          <input type="text" id="projeto-nome" placeholder="Ex: Obra Casa 2.7 da Taíba" required>
+        </div>
+        <div class="form-group">
+          <label>Localização</label>
+          <input type="text" id="projeto-local" placeholder="Ex: Taíba, CE">
+        </div>
+        <div class="form-group">
+          <label>Descrição</label>
+          <textarea id="projeto-desc" rows="2" placeholder="Detalhes da obra..."></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Status</label>
+            <select id="projeto-status">
+              <option value="planejamento">📋 Planejamento</option>
+              <option value="em_andamento" selected>🔨 Em andamento</option>
+              <option value="pausado">⏸️ Pausado</option>
+              <option value="concluido">✅ Concluído</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Previsão de término</label>
+            <input type="date" id="projeto-end">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="cancel-modal-projeto">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Toast notification -->
   <div id="toast" class="toast hidden"></div>
 
@@ -363,6 +462,7 @@
   <script src="js/config.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/properties.js"></script>
+  <script src="js/projects.js"></script>
   <script src="js/requests.js"></script>
   <script src="js/notifications.js"></script>
   <script src="js/app.js"></script>

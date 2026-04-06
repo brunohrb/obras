@@ -4,28 +4,42 @@
 // =============================================
 
 const Requests = (() => {
-  let pendingPhotos = []; // Fotos selecionadas antes de salvar
+  let pendingPhotos = [];
 
-  // ---- CRUD ----
+  // ---- Cache simples (45 segundos) ----
+  let _cache = null;
+  let _cacheAt = 0;
+  const CACHE_TTL = 45000;
 
-  // Lista pendências com filtros
-  async function list({ status, propertyId, urgency } = {}) {
-    let query = supabase
+  function invalidateCache() { _cache = null; _cacheAt = 0; }
+
+  // Busca TODOS os registros (usa cache se recente)
+  async function fetchAll() {
+    if (_cache && Date.now() - _cacheAt < CACHE_TTL) return _cache;
+    const { data, error } = await supabase
       .from('maintenance_requests')
       .select(`
         *,
         properties (id, name, unit),
+        projects (id, name, location),
         creator:profiles!maintenance_requests_created_by_fkey (id, name, role)
       `)
       .order('created_at', { ascending: false });
-
-    if (status && status !== 'todos') query = query.eq('status', status);
-    if (propertyId) query = query.eq('property_id', propertyId);
-    if (urgency) query = query.eq('urgency', urgency);
-
-    const { data, error } = await query;
     if (error) throw error;
-    return data || [];
+    _cache = data || [];
+    _cacheAt = Date.now();
+    return _cache;
+  }
+
+  // ---- CRUD ----
+
+  // Lista pendências — busca do cache e filtra localmente
+  async function list({ status, propertyId, urgency } = {}) {
+    let data = await fetchAll();
+    if (status && status !== 'todos') data = data.filter(r => r.status === status);
+    if (propertyId) data = data.filter(r => r.property_id === propertyId);
+    if (urgency) data = data.filter(r => r.urgency === urgency);
+    return data;
   }
 
   // Busca pendência por ID
@@ -35,6 +49,7 @@ const Requests = (() => {
       .select(`
         *,
         properties (id, name, unit, address),
+        projects (id, name, location),
         creator:profiles!maintenance_requests_created_by_fkey (id, name, email, role)
       `)
       .eq('id', id)
@@ -44,7 +59,8 @@ const Requests = (() => {
   }
 
   // Cria nova pendência
-  async function create({ propertyId, title, description, urgency, deadline, photos }) {
+  async function create({ propertyId, projectId, title, description, urgency, deadline, photos }) {
+    invalidateCache();
     const userId = Auth.getUser()?.id;
 
     // Upload das fotos primeiro
@@ -56,7 +72,8 @@ const Requests = (() => {
     const { data, error } = await supabase
       .from('maintenance_requests')
       .insert({
-        property_id: propertyId,
+        property_id: propertyId || null,
+        project_id: projectId || null,
         title,
         description: description || null,
         urgency,
@@ -78,6 +95,7 @@ const Requests = (() => {
 
   // Atualiza status
   async function updateStatus(id, status, notes) {
+    invalidateCache();
     const { data, error } = await supabase
       .from('maintenance_requests')
       .update({
@@ -91,7 +109,6 @@ const Requests = (() => {
 
     if (error) throw error;
 
-    // Notifica se concluído
     if (status === 'concluido') {
       await Notifications.notifyDone(data);
     } else if (status === 'em_andamento') {
@@ -103,7 +120,7 @@ const Requests = (() => {
 
   // Deleta pendência
   async function remove(id) {
-    // Remove fotos do storage primeiro
+    invalidateCache();
     const req = await getById(id);
     if (req?.photos?.length) {
       await deletePhotos(req.photos);
@@ -166,8 +183,6 @@ const Requests = (() => {
     Array.from(files).forEach(file => {
       if (!file.type.startsWith('image/')) return;
       if (pendingPhotos.length >= 8) { showToast('Máximo de 8 fotos por pendência', 'error'); return; }
-
-      // Comprime a imagem antes de adicionar
       compressImage(file, 1200, 0.8).then(compressed => {
         pendingPhotos.push(compressed);
         renderPhotoPreview();
@@ -248,7 +263,9 @@ const Requests = (() => {
   function renderCard(req) {
     const propName = req.properties
       ? (req.properties.unit ? `${req.properties.unit} · ${req.properties.name}` : req.properties.name)
-      : '—';
+      : req.projects
+        ? `🏗️ ${req.projects.name}`
+        : '—';
     const overdue = isOverdue(req.deadline, req.status);
     const card = document.createElement('div');
     card.className = `pendencia-card urgencia-${req.urgency} status-${req.status}`;
@@ -279,11 +296,12 @@ const Requests = (() => {
     return card;
   }
 
-  // Renderiza tela de detalhe
   function renderDetalhe(req, isResponsavel) {
     const propName = req.properties
       ? (req.properties.unit ? `${req.properties.unit} · ${req.properties.name}` : req.properties.name)
-      : '—';
+      : req.projects
+        ? `🏗️ ${req.projects.name}`
+        : '—';
     const overdue = isOverdue(req.deadline, req.status);
     const createdAt = new Date(req.created_at).toLocaleString('pt-BR');
     const updatedAt = req.updated_at ? new Date(req.updated_at).toLocaleString('pt-BR') : null;
@@ -350,6 +368,7 @@ const Requests = (() => {
 
   return {
     list, getById, create, updateStatus, remove,
+    invalidateCache,
     initPhotoPicker, getPendingPhotos, clearPendingPhotos,
     urgencyLabel, statusLabel, formatDate, isOverdue,
     renderCard, renderDetalhe

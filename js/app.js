@@ -41,7 +41,9 @@ function setLoading(btn, loading, text = '') {
 // ---- Estado da app ----
 let currentView = 'dashboard';
 let currentRequestId = null;
+let currentProjectId = null;
 let filterState = { status: 'todos', propertyId: '', urgency: '' };
+let filterProjetoStatus = 'todos';
 
 // ---- Inicialização ----
 
@@ -103,8 +105,8 @@ async function initApp() {
   // Pede permissão de notificação
   await Notifications.requestPermission();
 
-  // Carrega dados iniciais
-  await Properties.list();
+  // Carrega dados iniciais em paralelo
+  await Promise.all([Properties.list(), Projects.list()]);
   await Properties.populateSelects(['filter-imovel', 'nova-imovel']);
 
   // Atualiza badge de notificações
@@ -155,6 +157,10 @@ function setupApp() {
   });
 
   // Menu itens
+  document.getElementById('menu-projetos').addEventListener('click', () => {
+    document.getElementById('dropdown-menu').classList.add('hidden');
+    navigateTo('projetos');
+  });
   document.getElementById('menu-imoveis').addEventListener('click', () => {
     document.getElementById('dropdown-menu').classList.add('hidden');
     navigateTo('imoveis');
@@ -198,6 +204,9 @@ function setupApp() {
   // Modal usuários
   setupUsuariosModal();
 
+  // Modal projetos (Grandes Obras)
+  setupProjetosModal();
+
   // Notificações - limpar
   document.getElementById('btn-limpar-notifs').addEventListener('click', async () => {
     await Notifications.markAllRead();
@@ -221,7 +230,7 @@ function toggleMenu() {
 let viewHistory = [];
 
 function navigateTo(viewName, pushHistory = true) {
-  const views = ['dashboard', 'nova', 'detalhe', 'imoveis', 'notificacoes', 'usuarios'];
+  const views = ['dashboard', 'nova', 'detalhe', 'imoveis', 'notificacoes', 'usuarios', 'projetos', 'projeto-detalhe'];
   if (!views.includes(viewName)) return;
 
   if (pushHistory && currentView !== viewName) {
@@ -245,13 +254,15 @@ function navigateTo(viewName, pushHistory = true) {
     detalhe: 'Detalhes',
     imoveis: 'Imóveis',
     notificacoes: 'Notificações',
-    usuarios: 'Usuários'
+    usuarios: 'Usuários',
+    projetos: 'Grandes Obras',
+    'projeto-detalhe': 'Pendências da Obra'
   };
   document.getElementById('page-title').textContent = titles[viewName] || viewName;
 
   // Botão voltar
   const backBtn = document.getElementById('btn-back');
-  const showBack = ['nova', 'detalhe', 'imoveis', 'notificacoes', 'usuarios'].includes(viewName);
+  const showBack = ['nova', 'detalhe', 'imoveis', 'notificacoes', 'usuarios', 'projetos', 'projeto-detalhe'].includes(viewName);
   backBtn.classList.toggle('hidden', !showBack);
   document.querySelector('.header-logo').classList.toggle('hidden', showBack);
 
@@ -261,11 +272,14 @@ function navigateTo(viewName, pushHistory = true) {
     case 'imoveis': loadImoveis(); break;
     case 'notificacoes': loadNotificacoes(); break;
     case 'usuarios': loadUsuarios(); break;
+    case 'projetos': loadProjetos(); break;
     case 'nova':
       Requests.initPhotoPicker();
       Requests.clearPendingPhotos();
       document.getElementById('form-nova').reset();
       Properties.populateSelects(['nova-imovel']);
+      Projects.populateSelect('nova-projeto');
+      setTipoNova('imovel');
       document.getElementById('photo-preview').innerHTML = '';
       document.getElementById('nova-error').classList.add('hidden');
       break;
@@ -284,11 +298,47 @@ function goBack() {
 // ---- Login ----
 
 function setupLoginForm() {
+  // Auto-preenche usuário salvo
+  restoreLoginForm();
+
+  // Mostra botão de biometria se disponível e registrado
+  Auth.isBiometricAvailable().then(available => {
+    if (available && Auth.hasBiometricSaved()) {
+      document.getElementById('btn-biometrico').classList.remove('hidden');
+    }
+  });
+
+  // Login com biometria
+  document.getElementById('btn-biometrico').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-biometrico');
+    const errEl = document.getElementById('login-error');
+    errEl.classList.add('hidden');
+    btn.disabled = true;
+    btn.textContent = 'Verificando...';
+    try {
+      await Auth.verifyBiometric();
+      await initApp(); // sessão restaurada com sucesso
+    } catch (err) {
+      if (err.message === 'SESSAO_EXPIRADA') {
+        errEl.textContent = 'Sessão expirada. Faça login com senha para reativar a biometria.';
+      } else if (err.name === 'NotAllowedError') {
+        errEl.textContent = 'Biometria cancelada.';
+      } else {
+        errEl.textContent = 'Erro na biometria. Use sua senha.';
+      }
+      errEl.classList.remove('hidden');
+      btn.disabled = false;
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="22" height="22"><path d="M12 2C8.5 2 6 4.5 6 8v1"/><path d="M12 22c3.5 0 6-2.5 6-6v-1"/><path d="M9 8.5A3.5 3.5 0 0115 12v2"/><path d="M9 15.5A3.5 3.5 0 019 12v-1"/><path d="M12 8v8"/><path d="M6 12H3"/><path d="M21 12h-3"/></svg> Entrar com Face ID / Digital`;
+    }
+  });
+
+  // Login com senha
   const form = document.getElementById('login-form');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const email = document.getElementById('login-email').value.trim();
+    const username = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
+    const remember = document.getElementById('login-remember').checked;
     const btn = document.getElementById('login-btn');
     const errEl = document.getElementById('login-error');
 
@@ -296,7 +346,18 @@ function setupLoginForm() {
     setLoading(btn, true, 'Entrando...');
 
     try {
-      await Auth.login(email, password);
+      await Auth.login(username, password);
+
+      // Salva (ou remove) nome de usuário
+      if (remember) {
+        Auth.saveUsername(username);
+      } else {
+        Auth.clearSavedUsername();
+      }
+
+      // Oferece cadastro de biometria após login (com pequeno delay)
+      setTimeout(() => offerBiometricRegistration(username), 1200);
+
       // initApp será chamado pelo listener de auth
     } catch (err) {
       errEl.textContent = translateError(err.message);
@@ -306,11 +367,52 @@ function setupLoginForm() {
   });
 }
 
+// Oferece ativar biometria após login com senha
+async function offerBiometricRegistration(username) {
+  if (Auth.hasBiometricSaved()) return; // já registrado
+  const available = await Auth.isBiometricAvailable();
+  if (!available) return;
+
+  // Mostra banner discreto no topo do app
+  const banner = document.createElement('div');
+  banner.className = 'biometric-offer-banner';
+  banner.innerHTML = `
+    <span>Ativar login com Face ID / Digital?</span>
+    <div class="biometric-offer-btns">
+      <button id="bio-sim" class="btn btn-sm btn-primary">Ativar</button>
+      <button id="bio-nao" class="btn btn-sm btn-outline">Agora não</button>
+    </div>
+  `;
+  document.getElementById('screen-app').prepend(banner);
+
+  banner.querySelector('#bio-sim').addEventListener('click', async () => {
+    try {
+      await Auth.registerBiometric(username);
+      showToast('Biometria ativada! ✓', 'success');
+      document.getElementById('btn-biometrico')?.classList.remove('hidden');
+    } catch {
+      showToast('Não foi possível ativar. Tente novamente.', 'error');
+    }
+    banner.remove();
+  });
+  banner.querySelector('#bio-nao').addEventListener('click', () => banner.remove());
+}
+
 async function handleLogout() {
   document.getElementById('dropdown-menu').classList.add('hidden');
   await Auth.logout();
   showScreen('login');
   document.getElementById('login-form').reset();
+  restoreLoginForm(); // Reaplica usuário salvo após o reset
+}
+
+// Reaplica usuário salvo e estado do checkbox
+function restoreLoginForm() {
+  const savedUser = Auth.getSavedUsername();
+  if (savedUser) {
+    document.getElementById('login-email').value = savedUser;
+    document.getElementById('login-remember').checked = true;
+  }
 }
 
 function translateError(msg) {
@@ -328,20 +430,22 @@ async function loadDashboard() {
   list.querySelectorAll('.pendencia-card').forEach(c => c.remove());
 
   try {
-    const reqs = await Requests.list({
-      status: filterState.status !== 'todos' ? filterState.status : null,
-      propertyId: filterState.propertyId || null,
-      urgency: filterState.urgency || null
-    });
-
-    // Stats (sem filtro de status para os totais)
+    // Uma única busca (usa cache de 45s) — filtragem local
     const allReqs = await Requests.list({});
+
+    // Stats sempre sobre todos
     document.getElementById('stat-pendente').textContent =
       allReqs.filter(r => r.status === 'pendente').length;
     document.getElementById('stat-critica').textContent =
       allReqs.filter(r => r.urgency === 'critica' && r.status !== 'concluido').length;
     document.getElementById('stat-concluido').textContent =
       allReqs.filter(r => r.status === 'concluido').length;
+
+    // Aplica filtros localmente
+    let reqs = allReqs;
+    if (filterState.status !== 'todos') reqs = reqs.filter(r => r.status === filterState.status);
+    if (filterState.propertyId) reqs = reqs.filter(r => r.property_id === filterState.propertyId);
+    if (filterState.urgency) reqs = reqs.filter(r => r.urgency === filterState.urgency);
 
     if (reqs.length === 0) {
       empty.style.display = 'block';
@@ -424,6 +528,16 @@ async function confirmDelete(id) {
   }
 }
 
+// ---- Tipo nova pendência (imóvel ou projeto) ----
+let tipoNova = 'imovel';
+function setTipoNova(tipo) {
+  tipoNova = tipo;
+  document.getElementById('nova-imovel').classList.toggle('hidden', tipo === 'projeto');
+  document.getElementById('nova-projeto').classList.toggle('hidden', tipo === 'imovel');
+  document.getElementById('tipo-imovel').className = `btn btn-sm ${tipo === 'imovel' ? 'btn-primary' : 'btn-outline'}`;
+  document.getElementById('tipo-projeto').className = `btn btn-sm ${tipo === 'projeto' ? 'btn-primary' : 'btn-outline'}`;
+}
+
 // ---- Nova pendência ----
 
 function setupNovaForm() {
@@ -434,14 +548,15 @@ function setupNovaForm() {
     const errEl = document.getElementById('nova-error');
     errEl.classList.add('hidden');
 
-    const propertyId = document.getElementById('nova-imovel').value;
+    const propertyId = tipoNova === 'imovel' ? document.getElementById('nova-imovel').value : null;
+    const projectId  = tipoNova === 'projeto' ? document.getElementById('nova-projeto').value : null;
     const title = document.getElementById('nova-titulo').value.trim();
     const description = document.getElementById('nova-descricao').value.trim();
     const urgency = document.getElementById('nova-urgencia').value;
     const deadline = document.getElementById('nova-prazo').value;
 
-    if (!propertyId || !title || !urgency) {
-      errEl.textContent = 'Preencha os campos obrigatórios (*)';
+    if ((!propertyId && !projectId) || !title || !urgency) {
+      errEl.textContent = 'Selecione um imóvel ou projeto, título e urgência (*)';
       errEl.classList.remove('hidden');
       return;
     }
@@ -450,7 +565,7 @@ function setupNovaForm() {
 
     try {
       const photos = Requests.getPendingPhotos();
-      await Requests.create({ propertyId, title, description, urgency, deadline, photos });
+      await Requests.create({ propertyId, projectId, title, description, urgency, deadline, photos });
 
       showToast('Pendência criada! Responsável notificado. ✓', 'success');
       Requests.clearPendingPhotos();
@@ -656,16 +771,159 @@ function setupUsuariosModal() {
     const perfil = document.getElementById('usuario-perfil').value;
 
     try {
-      await Auth.createUser(email, senha, nome, perfil);
-      showToast(`Usuário criado! Um e-mail de confirmação foi enviado para ${email}`, 'success');
+      const usuario = document.getElementById('usuario-email').value.trim();
+      await Auth.createUser(usuario, senha, nome, perfil);
+      showToast(`Usuário "${usuario}" criado com sucesso! ✓`, 'success');
       modal.classList.add('hidden');
       loadUsuarios();
     } catch (err) {
-      errEl.textContent = translateError(err.message) || err.message;
+      if (err.message === 'CONFIRM_EMAIL') {
+        errEl.textContent = '⚠️ Usuário criado mas precisa de confirmação. Desative "Confirm email" em Authentication → Providers → Email no Supabase para evitar isso.';
+      } else {
+        errEl.textContent = translateError(err.message) || err.message;
+      }
       errEl.classList.remove('hidden');
       console.error(err);
     }
   });
+}
+
+// ---- Projetos ----
+
+async function loadProjetos() {
+  const list = document.getElementById('list-projetos');
+  list.innerHTML = '<div style="text-align:center;padding:32px"><div class="loading-spinner" style="margin:0 auto;border-color:rgba(0,0,0,0.15);border-top-color:var(--primary)"></div></div>';
+  try {
+    const projetos = await Projects.list();
+    const reqs = await Requests.list({});
+    list.innerHTML = '';
+    if (!projetos.length) {
+      list.innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg><p>Nenhum projeto cadastrado</p></div>';
+      return;
+    }
+    projetos.forEach(p => {
+      const total = reqs.filter(r => r.project_id === p.id).length;
+      const abertas = reqs.filter(r => r.project_id === p.id && r.status !== 'concluido').length;
+      const card = Projects.renderCard(p, { total, abertas });
+      card.querySelector('.btn-ver-project')?.addEventListener('click', () => openProjetoDetalhe(p.id));
+      card.querySelector('.btn-edit-project')?.addEventListener('click', () => openEditProjeto(p));
+      list.appendChild(card);
+    });
+  } catch (err) {
+    showToast('Erro ao carregar projetos', 'error');
+  }
+}
+
+async function openProjetoDetalhe(projectId) {
+  currentProjectId = projectId;
+  filterProjetoStatus = 'todos';
+  navigateTo('projeto-detalhe');
+
+  const header = document.getElementById('projeto-detalhe-header');
+  const listEl = document.getElementById('list-projeto-pendencias');
+
+  try {
+    const projeto = await Projects.getById(projectId);
+    header.innerHTML = `
+      <h2>${escapeHtml(projeto.name)}</h2>
+      <div class="meta">
+        <span class="${'pendencia-status ' + (Projects.STATUS_COLORS[projeto.status] || '')}">${Projects.STATUS_LABELS[projeto.status]}</span>
+        ${projeto.location ? `<span>📍 ${escapeHtml(projeto.location)}</span>` : ''}
+        ${projeto.end_date ? `<span>🗓️ Até ${Requests.formatDate(projeto.end_date)}</span>` : ''}
+      </div>
+      ${projeto.description ? `<p style="margin-top:8px;font-size:14px;color:var(--text-secondary)">${escapeHtml(projeto.description)}</p>` : ''}
+    `;
+  } catch (err) { header.innerHTML = ''; }
+
+  // Filtros do projeto
+  document.querySelectorAll('#filter-status-projeto .filter-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('#filter-status-projeto .filter-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      filterProjetoStatus = tab.dataset.status;
+      loadProjetoPendencias(projectId);
+    });
+  });
+
+  // Botão nova pendência dentro do projeto
+  document.getElementById('btn-nova-pendencia-projeto').onclick = () => {
+    navigateTo('nova');
+    // Pré-seleciona o projeto no form nova (se existir campo)
+  };
+
+  loadProjetoPendencias(projectId);
+}
+
+async function loadProjetoPendencias(projectId) {
+  const listEl = document.getElementById('list-projeto-pendencias');
+  listEl.innerHTML = '';
+  try {
+    let reqs = await Requests.list({});
+    reqs = reqs.filter(r => r.project_id === projectId);
+    if (filterProjetoStatus !== 'todos') reqs = reqs.filter(r => r.status === filterProjetoStatus);
+
+    if (!reqs.length) {
+      listEl.innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg><p>Nenhuma pendência neste projeto</p></div>';
+      return;
+    }
+    reqs.forEach(req => {
+      const card = Requests.renderCard(req);
+      card.addEventListener('click', () => openDetalhe(req.id));
+      listEl.appendChild(card);
+    });
+  } catch (err) { showToast('Erro ao carregar pendências', 'error'); }
+}
+
+function setupProjetosModal() {
+  const modal = document.getElementById('modal-projeto');
+  const form = document.getElementById('form-projeto');
+
+  document.getElementById('btn-novo-projeto').addEventListener('click', () => {
+    document.getElementById('modal-projeto-title').textContent = 'Nova Grande Obra';
+    document.getElementById('projeto-edit-id').value = '';
+    form.reset();
+    modal.classList.remove('hidden');
+  });
+  document.getElementById('close-modal-projeto').addEventListener('click', () => modal.classList.add('hidden'));
+  document.getElementById('cancel-modal-projeto').addEventListener('click', () => modal.classList.add('hidden'));
+  modal.addEventListener('click', e => { if (e.target === modal) modal.classList.add('hidden'); });
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const id = document.getElementById('projeto-edit-id').value;
+    const fields = {
+      name: document.getElementById('projeto-nome').value.trim(),
+      location: document.getElementById('projeto-local').value.trim(),
+      description: document.getElementById('projeto-desc').value.trim(),
+      status: document.getElementById('projeto-status').value,
+      endDate: document.getElementById('projeto-end').value
+    };
+    try {
+      if (id) {
+        await Projects.update(id, { name: fields.name, location: fields.location, description: fields.description, status: fields.status, end_date: fields.endDate || null });
+        showToast('Projeto atualizado ✓', 'success');
+      } else {
+        await Projects.create(fields);
+        showToast('Projeto criado ✓', 'success');
+      }
+      modal.classList.add('hidden');
+      await Projects.list();
+      loadProjetos();
+    } catch (err) {
+      showToast('Erro ao salvar projeto', 'error');
+    }
+  });
+}
+
+function openEditProjeto(projeto) {
+  document.getElementById('modal-projeto-title').textContent = 'Editar Grande Obra';
+  document.getElementById('projeto-edit-id').value = projeto.id;
+  document.getElementById('projeto-nome').value = projeto.name;
+  document.getElementById('projeto-local').value = projeto.location || '';
+  document.getElementById('projeto-desc').value = projeto.description || '';
+  document.getElementById('projeto-status').value = projeto.status;
+  document.getElementById('projeto-end').value = projeto.end_date || '';
+  document.getElementById('modal-projeto').classList.remove('hidden');
 }
 
 // ---- Image Viewer ----
