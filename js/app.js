@@ -320,10 +320,11 @@ function setupLoginForm() {
       await initApp(); // sessão restaurada com sucesso
     } catch (err) {
       if (err.message === 'SESSAO_EXPIRADA') {
-        errEl.textContent = 'Sessão expirada. Faça login com senha para reativar a biometria.';
+        errEl.textContent = 'Sessão expirada. Faça login com senha — o Face ID continuará disponível.';
         btn.classList.add('hidden');
       } else if (err.message === 'CREDENCIAL_INVALIDA') {
-        errEl.textContent = 'Biometria desatualizada. Faça login com senha e reative o Face ID / Digital.';
+        // Credencial removida do dispositivo (ex: trocou de celular). Permite reativar.
+        errEl.textContent = 'Face ID não reconhecido neste dispositivo. Faça login com senha para reativar.';
         btn.classList.add('hidden');
       } else if (err.name === 'NotAllowedError') {
         errEl.textContent = 'Biometria cancelada.';
@@ -375,9 +376,13 @@ function setupLoginForm() {
 
 // Oferece ativar biometria após login com senha
 async function offerBiometricRegistration(username) {
-  if (Auth.hasBiometricSaved()) return; // já registrado
+  if (Auth.hasBiometricSaved()) return;       // já registrado neste dispositivo
+  if (Auth.isBiometricOfferDismissed()) return; // usuário escolheu não ativar
   const available = await Auth.isBiometricAvailable();
   if (!available) return;
+
+  // Remove banner anterior se existir
+  document.querySelector('.biometric-offer-banner')?.remove();
 
   // Mostra banner discreto no topo do app
   const banner = document.createElement('div');
@@ -386,7 +391,7 @@ async function offerBiometricRegistration(username) {
     <span>Ativar login com Face ID / Digital?</span>
     <div class="biometric-offer-btns">
       <button id="bio-sim" class="btn btn-sm btn-primary">Ativar</button>
-      <button id="bio-nao" class="btn btn-sm btn-outline">Agora não</button>
+      <button id="bio-nao" class="btn btn-sm btn-outline">Não quero</button>
     </div>
   `;
   document.getElementById('screen-app').prepend(banner);
@@ -394,14 +399,24 @@ async function offerBiometricRegistration(username) {
   banner.querySelector('#bio-sim').addEventListener('click', async () => {
     try {
       await Auth.registerBiometric(username);
-      showToast('Biometria ativada! ✓', 'success');
+      showToast('Face ID / Digital ativado! ✓', 'success');
       document.getElementById('btn-biometrico')?.classList.remove('hidden');
-    } catch {
-      showToast('Não foi possível ativar. Tente novamente.', 'error');
+    } catch (err) {
+      if (err.name === 'NotAllowedError') {
+        showToast('Ativação cancelada.', '');
+      } else {
+        showToast('Não foi possível ativar neste dispositivo.', 'error');
+        Auth.dismissBiometricOffer(); // não tentar novamente
+      }
     }
     banner.remove();
   });
-  banner.querySelector('#bio-nao').addEventListener('click', () => banner.remove());
+
+  // "Não quero" salva a preferência permanentemente neste dispositivo
+  banner.querySelector('#bio-nao').addEventListener('click', () => {
+    Auth.dismissBiometricOffer();
+    banner.remove();
+  });
 }
 
 async function handleLogout() {
@@ -732,7 +747,15 @@ async function loadUsuarios() {
       return;
     }
 
-    users.forEach(u => {
+    // Remove duplicatas pelo e-mail (mantém o primeiro de cada)
+    const seen = new Set();
+    const uniqueUsers = users.filter(u => {
+      if (seen.has(u.email)) return false;
+      seen.add(u.email);
+      return true;
+    });
+
+    uniqueUsers.forEach(u => {
       const card = document.createElement('div');
       card.className = 'usuario-card';
       const initial = (u.name || u.email || '?').charAt(0).toUpperCase();

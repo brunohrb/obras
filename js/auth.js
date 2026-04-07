@@ -6,8 +6,9 @@ const Auth = (() => {
   let currentUser = null;
   let currentProfile = null;
 
-  const SAVED_USER_KEY = 'bop_saved_user';
-  const BIOMETRIC_KEY  = 'bop_biometric_cred';
+  const SAVED_USER_KEY    = 'bop_saved_user';
+  const BIOMETRIC_KEY     = 'bop_biometric_cred';
+  const BIOMETRIC_NEVER   = 'bop_biometric_never';
 
   // Converte nome de usuário simples para email interno
   function toEmail(username) {
@@ -25,7 +26,8 @@ const Auth = (() => {
   }
 
   async function logout() {
-    clearBiometric();
+    // Não limpa a biometria no logout — a credencial permanece válida no dispositivo.
+    // Se a sessão expirar, verifyBiometric retorna SESSAO_EXPIRADA e o usuário refaz login com senha.
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
     currentUser = null;
@@ -168,6 +170,14 @@ const Auth = (() => {
     localStorage.removeItem(BIOMETRIC_KEY);
   }
 
+  function dismissBiometricOffer() {
+    localStorage.setItem(BIOMETRIC_NEVER, '1');
+  }
+
+  function isBiometricOfferDismissed() {
+    return !!localStorage.getItem(BIOMETRIC_NEVER);
+  }
+
   // ---- Auth state listener ----
 
   function onAuthChange(callback) {
@@ -195,6 +205,7 @@ const Auth = (() => {
     login, logout, getSession, loadProfile, createUser,
     saveUsername, getSavedUsername, clearSavedUsername,
     isBiometricAvailable, hasBiometricSaved, registerBiometric, verifyBiometric, clearBiometric,
+    dismissBiometricOffer, isBiometricOfferDismissed,
     getUser, getProfile, isLoggedIn, isResponsavel, isSocio, isAdmin,
     onAuthChange
   };

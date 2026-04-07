@@ -85,9 +85,9 @@ body {
 .checkbox-label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-size: 14px;
-  color: var(--text-secondary);
+  color: rgba(255,255,255,0.85);
   cursor: pointer;
   margin-bottom: 12px;
   -webkit-user-select: none;
@@ -97,12 +97,43 @@ body {
   padding: 4px 0;
 }
 .checkbox-label input[type="checkbox"] {
-  width: 22px; height: 22px;
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.checkbox-label .checkmark {
+  width: 22px;
+  height: 22px;
   min-width: 22px;
-  accent-color: var(--primary);
-  cursor: pointer;
+  border: 2px solid rgba(255,255,255,0.5);
+  border-radius: 5px;
+  background: rgba(255,255,255,0.1);
+  position: relative;
   flex-shrink: 0;
-  touch-action: manipulation;
+  transition: background 0.15s, border-color 0.15s;
+}
+.checkbox-label input:checked ~ .checkmark,
+.checkbox-label input:checked + .checkmark {
+  background: white;
+  border-color: white;
+}
+.checkbox-label .checkmark::after {
+  content: '';
+  position: absolute;
+  display: none;
+  left: 6px;
+  top: 2px;
+  width: 6px;
+  height: 11px;
+  border: solid var(--primary);
+  border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg);
+}
+.checkbox-label input:checked ~ .checkmark::after,
+.checkbox-label input:checked + .checkmark::after {
+  display: block;
 }
 
 /* Botão biometria */
