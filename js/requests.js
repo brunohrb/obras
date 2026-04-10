@@ -87,8 +87,12 @@ const Requests = (() => {
 
     if (error) throw error;
 
-    // Notifica responsáveis
-    await Notifications.notifyNew(data);
+    // Notifica responsáveis (não bloqueia se falhar)
+    try {
+      await Notifications.notifyNew(data);
+    } catch (e) {
+      console.error('Erro ao enviar notificação:', e);
+    }
 
     return data;
   }
@@ -109,10 +113,17 @@ const Requests = (() => {
 
     if (error) throw error;
 
-    if (status === 'concluido') {
-      await Notifications.notifyDone(data);
-    } else if (status === 'em_andamento') {
-      await Notifications.notifyUpdate(data, 'em andamento');
+    // Notifica criador sobre mudança de status (não bloqueia se falhar)
+    try {
+      if (status === 'concluido') {
+        await Notifications.notifyDone(data);
+      } else if (status === 'em_andamento') {
+        await Notifications.notifyUpdate(data, 'em andamento');
+      } else if (status === 'pendente') {
+        await Notifications.notifyUpdate(data, 'pendente');
+      }
+    } catch (e) {
+      console.error('Erro ao enviar notificação:', e);
     }
 
     return data;

@@ -9,6 +9,27 @@ const Notifications = (() => {
 
   // ---- Envio de notificações ----
 
+  // Busca nome do imóvel ou projeto vinculado à pendência
+  async function getLocationName(request) {
+    if (request.property_id) {
+      const { data: prop } = await supabase
+        .from('properties')
+        .select('name, unit')
+        .eq('id', request.property_id)
+        .single();
+      if (prop) return prop.unit ? `${prop.unit} · ${prop.name}` : prop.name;
+    }
+    if (request.project_id) {
+      const { data: proj } = await supabase
+        .from('projects')
+        .select('name')
+        .eq('id', request.project_id)
+        .single();
+      if (proj) return `🏗️ ${proj.name}`;
+    }
+    return 'imóvel';
+  }
+
   // Notifica responsáveis quando nova pendência é criada
   async function notifyNew(request) {
     // Busca todos os responsáveis
@@ -19,21 +40,13 @@ const Notifications = (() => {
 
     if (!responsaveis?.length) return;
 
-    // Busca nome do imóvel
-    const { data: prop } = await supabase
-      .from('properties')
-      .select('name, unit')
-      .eq('id', request.property_id)
-      .single();
-
-    const propName = prop ? (prop.unit ? `${prop.unit} · ${prop.name}` : prop.name) : 'imóvel';
-    const creatorName = Auth.getProfile()?.name || 'Um sócio';
+    const locationName = await getLocationName(request);
 
     const notifications = responsaveis.map(r => ({
       user_id: r.id,
       request_id: request.id,
       type: 'nova_pendencia',
-      message: `📋 Nova pendência em ${propName}: "${request.title}" — ${Requests.urgencyLabel(request.urgency)}`
+      message: `📋 Nova pendência em ${locationName}: "${request.title}" — ${Requests.urgencyLabel(request.urgency)}`
     }));
 
     await supabase.from('notifications').insert(notifications);
@@ -43,40 +56,32 @@ const Notifications = (() => {
   async function notifyDone(request) {
     if (!request.created_by) return;
 
-    const { data: prop } = await supabase
-      .from('properties')
-      .select('name, unit')
-      .eq('id', request.property_id)
-      .single();
-
-    const propName = prop ? (prop.unit ? `${prop.unit} · ${prop.name}` : prop.name) : 'imóvel';
-    const responsavelName = Auth.getProfile()?.name || 'O responsável';
+    const locationName = await getLocationName(request);
 
     await supabase.from('notifications').insert({
       user_id: request.created_by,
       request_id: request.id,
       type: 'concluido',
-      message: `✅ Pendência concluída em ${propName}: "${request.title}"`
+      message: `✅ Pendência concluída em ${locationName}: "${request.title}"`
     });
   }
 
-  // Notifica criador quando status muda para "em andamento"
+  // Notifica criador quando status muda
   async function notifyUpdate(request, newStatus) {
     if (!request.created_by) return;
 
-    const { data: prop } = await supabase
-      .from('properties')
-      .select('name, unit')
-      .eq('id', request.property_id)
-      .single();
+    const locationName = await getLocationName(request);
 
-    const propName = prop ? (prop.unit ? `${prop.unit} · ${prop.name}` : prop.name) : 'imóvel';
+    const statusMessages = {
+      'em andamento': `🔨 Pendência em andamento em ${locationName}: "${request.title}"`,
+      'pendente': `↩ Pendência retornou para pendente em ${locationName}: "${request.title}"`
+    };
 
     await supabase.from('notifications').insert({
       user_id: request.created_by,
       request_id: request.id,
       type: 'atualizado',
-      message: `🔨 Pendência em andamento em ${propName}: "${request.title}"`
+      message: statusMessages[newStatus] || `🔨 Pendência atualizada em ${locationName}: "${request.title}"`
     });
   }
 
