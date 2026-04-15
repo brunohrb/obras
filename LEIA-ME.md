@@ -56,7 +56,16 @@
 - **Filtros** por status, imóvel e urgência
 - **Fotos** via câmera ou galeria (comprimidas automaticamente)
 - **Notificações em tempo real** via Supabase Realtime
+- **Financeiro** — despesas e receitas por imóvel ou grande obra, orçamento × realizado, gastos por categoria, filtros, exportação CSV (sócios lançam/editam; responsável só visualiza)
 - **PWA** — funciona como app no celular, sem precisar de loja
+
+### Configurar o módulo financeiro
+
+Antes de usar a tela **Financeiro** (menu → Financeiro):
+
+1. No Supabase, abra o **SQL Editor**
+2. Cole todo o conteúdo do arquivo `supabase-financeiro.sql` e clique em **Run**
+3. Isso cria a tabela `finances`, adiciona a coluna `budget` em `projects`, ativa as policies e cria o bucket privado `obras-financeiro` para recibos
 
 ---
 
@@ -67,8 +76,10 @@ bandeira-obras/
 ├── index.html          — App principal
 ├── manifest.json       — Configuração PWA
 ├── sw.js               — Service Worker (cache e notificações)
-├── supabase-schema.sql — Script do banco de dados
-├── LEIA-ME.md          — Este arquivo
+├── supabase-schema.sql      — Script do banco de dados
+├── supabase-projetos.sql    — Script das grandes obras
+├── supabase-financeiro.sql  — Script do módulo financeiro
+├── LEIA-ME.md               — Este arquivo
 ├── assets/
 │   └── logo.png
 ├── css/
@@ -78,6 +89,8 @@ bandeira-obras/
     ├── auth.js         — Autenticação
     ├── properties.js   — Imóveis
     ├── requests.js     — Pendências
+    ├── projects.js     — Grandes obras
+    ├── finances.js     — Financeiro (despesas, receitas, orçamento)
     ├── notifications.js — Notificações em tempo real
     └── app.js          — Controlador principal
 ```

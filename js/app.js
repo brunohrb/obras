@@ -165,6 +165,10 @@ function setupApp() {
     document.getElementById('dropdown-menu').classList.add('hidden');
     navigateTo('imoveis');
   });
+  document.getElementById('menu-financeiro').addEventListener('click', () => {
+    document.getElementById('dropdown-menu').classList.add('hidden');
+    navigateTo('financeiro');
+  });
   document.getElementById('menu-usuarios').addEventListener('click', () => {
     document.getElementById('dropdown-menu').classList.add('hidden');
     navigateTo('usuarios');
@@ -207,6 +211,9 @@ function setupApp() {
   // Modal projetos (Grandes Obras)
   setupProjetosModal();
 
+  // Módulo financeiro
+  setupFinanceiro();
+
   // Notificações - limpar
   document.getElementById('btn-limpar-notifs').addEventListener('click', async () => {
     await Notifications.markAllRead();
@@ -230,7 +237,7 @@ function toggleMenu() {
 let viewHistory = [];
 
 function navigateTo(viewName, pushHistory = true) {
-  const views = ['dashboard', 'nova', 'detalhe', 'imoveis', 'notificacoes', 'usuarios', 'projetos', 'projeto-detalhe'];
+  const views = ['dashboard', 'nova', 'detalhe', 'imoveis', 'notificacoes', 'usuarios', 'projetos', 'projeto-detalhe', 'financeiro'];
   if (!views.includes(viewName)) return;
 
   if (pushHistory && currentView !== viewName) {
@@ -256,13 +263,14 @@ function navigateTo(viewName, pushHistory = true) {
     notificacoes: 'Notificações',
     usuarios: 'Usuários',
     projetos: 'Grandes Obras',
-    'projeto-detalhe': 'Pendências da Obra'
+    'projeto-detalhe': 'Pendências da Obra',
+    financeiro: 'Financeiro'
   };
   document.getElementById('page-title').textContent = titles[viewName] || viewName;
 
   // Botão voltar
   const backBtn = document.getElementById('btn-back');
-  const showBack = ['nova', 'detalhe', 'imoveis', 'notificacoes', 'usuarios', 'projetos', 'projeto-detalhe'].includes(viewName);
+  const showBack = ['nova', 'detalhe', 'imoveis', 'notificacoes', 'usuarios', 'projetos', 'projeto-detalhe', 'financeiro'].includes(viewName);
   backBtn.classList.toggle('hidden', !showBack);
   document.querySelector('.header-logo').classList.toggle('hidden', showBack);
 
@@ -273,6 +281,7 @@ function navigateTo(viewName, pushHistory = true) {
     case 'notificacoes': loadNotificacoes(); break;
     case 'usuarios': loadUsuarios(); break;
     case 'projetos': loadProjetos(); break;
+    case 'financeiro': loadFinanceiro(); break;
     case 'nova':
       Requests.initPhotoPicker();
       Requests.clearPendingPhotos();
@@ -920,16 +929,18 @@ function setupProjetosModal() {
   form.addEventListener('submit', async e => {
     e.preventDefault();
     const id = document.getElementById('projeto-edit-id').value;
+    const budgetRaw = document.getElementById('projeto-budget').value;
     const fields = {
       name: document.getElementById('projeto-nome').value.trim(),
       location: document.getElementById('projeto-local').value.trim(),
       description: document.getElementById('projeto-desc').value.trim(),
       status: document.getElementById('projeto-status').value,
-      endDate: document.getElementById('projeto-end').value
+      endDate: document.getElementById('projeto-end').value,
+      budget: budgetRaw === '' ? null : Number(budgetRaw)
     };
     try {
       if (id) {
-        await Projects.update(id, { name: fields.name, location: fields.location, description: fields.description, status: fields.status, end_date: fields.endDate || null });
+        await Projects.update(id, { name: fields.name, location: fields.location, description: fields.description, status: fields.status, end_date: fields.endDate || null, budget: fields.budget });
         showToast('Projeto atualizado ✓', 'success');
       } else {
         await Projects.create(fields);
@@ -952,7 +963,343 @@ function openEditProjeto(projeto) {
   document.getElementById('projeto-desc').value = projeto.description || '';
   document.getElementById('projeto-status').value = projeto.status;
   document.getElementById('projeto-end').value = projeto.end_date || '';
+  document.getElementById('projeto-budget').value = projeto.budget != null ? projeto.budget : '';
   document.getElementById('modal-projeto').classList.remove('hidden');
+}
+
+// =============================================
+// FINANCEIRO
+// =============================================
+let finFilterState = { status: 'todos', scope: '', kind: '' };
+let finTipoVinculo = 'imovel'; // imovel | projeto
+
+async function loadFinanceiro() {
+  const listEl = document.getElementById('list-financeiro');
+  const empty  = document.getElementById('empty-financeiro');
+  const summaryEl = document.getElementById('financeiro-summary');
+  const byProjEl  = document.getElementById('financeiro-by-project');
+  const byCatEl   = document.getElementById('financeiro-by-category');
+
+  // Loader
+  listEl.querySelectorAll('.fin-card').forEach(c => c.remove());
+  summaryEl.innerHTML = '<div style="text-align:center;padding:16px"><div class="loading-spinner" style="margin:0 auto;border-color:rgba(0,0,0,0.15);border-top-color:var(--primary)"></div></div>';
+
+  try {
+    const [items, properties, projects] = await Promise.all([
+      Finances.list(),
+      Properties.getCache().length ? Properties.getCache() : Properties.list(),
+      Projects.getCache().length ? Projects.getCache() : Projects.list()
+    ]);
+
+    // Popula filtro de escopo (imóveis + projetos)
+    populateFinScopeFilter(properties, projects);
+
+    // Aplica filtros locais
+    let filtered = items.slice();
+    if (finFilterState.status !== 'todos') filtered = filtered.filter(f => f.status === finFilterState.status);
+    if (finFilterState.kind)    filtered = filtered.filter(f => f.kind === finFilterState.kind);
+    if (finFilterState.scope) {
+      const [kind, id] = finFilterState.scope.split(':');
+      if (kind === 'imovel')  filtered = filtered.filter(f => f.property_id === id);
+      if (kind === 'projeto') filtered = filtered.filter(f => f.project_id  === id);
+    }
+
+    // Cards de resumo (sobre items filtrados)
+    const summary = Finances.summarize(filtered);
+    summaryEl.innerHTML = Finances.renderSummaryCards(summary);
+
+    // Por obra (orçamento x realizado) — sempre sobre o total (não filtrado)
+    byProjEl.innerHTML = '';
+    const byProj = Finances.groupByProject(items, projects);
+    if (byProj.length) {
+      const html = byProj.map(p => `
+        <div class="fin-group-card">
+          <div class="fin-group-title">🏗️ ${escapeHtml(p.name)}</div>
+          ${Finances.renderBudgetBar(p.total, p.budget)}
+        </div>
+      `).join('');
+      byProjEl.innerHTML = `<h3 class="fin-section-title">Orçamento × Realizado (grandes obras)</h3>${html}`;
+    }
+
+    // Por categoria
+    byCatEl.innerHTML = '';
+    const byCat = Finances.groupByCategory(filtered);
+    if (byCat.length) {
+      const total = byCat.reduce((s, x) => s + x.total, 0);
+      const rows = byCat.map(c => {
+        const pct = total > 0 ? (c.total / total) * 100 : 0;
+        return `
+          <div class="fin-group-row">
+            <span class="name">${escapeHtml(c.label)}</span>
+            <span class="val">${Finances.formatMoney(c.total)} <small style="color:var(--text-hint)">(${pct.toFixed(0)}%)</small></span>
+          </div>
+        `;
+      }).join('');
+      byCatEl.innerHTML = `
+        <h3 class="fin-section-title">Gastos por categoria</h3>
+        <div class="fin-group-card">${rows}</div>
+      `;
+    }
+
+    // Lista de lançamentos filtrados
+    if (filtered.length === 0) {
+      empty.style.display = 'block';
+    } else {
+      empty.style.display = 'none';
+      const scopeName = (f) => {
+        if (f.project_id) {
+          const p = projects.find(x => x.id === f.project_id);
+          return p ? `🏗️ ${p.name}` : null;
+        }
+        if (f.property_id) {
+          const p = properties.find(x => x.id === f.property_id);
+          return p ? `🏠 ${Properties.getDisplayName(p)}` : null;
+        }
+        return null;
+      };
+      filtered.forEach(f => {
+        const card = Finances.renderCard(f, { scopeName: scopeName(f) });
+        card.addEventListener('click', () => openFinanceiroModal(f));
+        listEl.appendChild(card);
+      });
+    }
+  } catch (err) {
+    summaryEl.innerHTML = '';
+    showToast('Erro ao carregar financeiro', 'error');
+    console.error(err);
+  }
+}
+
+function populateFinScopeFilter(properties, projects) {
+  const sel = document.getElementById('filter-fin-scope');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Todas as obras / imóveis</option>';
+
+  if (projects.length) {
+    const gp = document.createElement('optgroup');
+    gp.label = 'Grandes obras';
+    projects.forEach(p => {
+      const o = document.createElement('option');
+      o.value = `projeto:${p.id}`;
+      o.textContent = p.name;
+      gp.appendChild(o);
+    });
+    sel.appendChild(gp);
+  }
+  if (properties.length) {
+    const gi = document.createElement('optgroup');
+    gi.label = 'Imóveis';
+    properties.forEach(p => {
+      const o = document.createElement('option');
+      o.value = `imovel:${p.id}`;
+      o.textContent = Properties.getDisplayName(p);
+      gi.appendChild(o);
+    });
+    sel.appendChild(gi);
+  }
+  if (current) sel.value = current;
+}
+
+function setupFinanceiro() {
+  // Filtros
+  document.getElementById('filter-fin-status').addEventListener('click', (e) => {
+    const tab = e.target.closest('.filter-tab');
+    if (!tab) return;
+    document.querySelectorAll('#filter-fin-status .filter-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    finFilterState.status = tab.dataset.fstatus;
+    loadFinanceiro();
+  });
+  document.getElementById('filter-fin-scope').addEventListener('change', (e) => {
+    finFilterState.scope = e.target.value;
+    loadFinanceiro();
+  });
+  document.getElementById('filter-fin-kind').addEventListener('change', (e) => {
+    finFilterState.kind = e.target.value;
+    loadFinanceiro();
+  });
+
+  // Exportar CSV
+  document.getElementById('btn-fin-export').addEventListener('click', () => {
+    const items = Finances.getCache();
+    if (!items.length) {
+      showToast('Nada para exportar', '');
+      return;
+    }
+    Finances.exportCsv(items, `financeiro-${new Date().toISOString().slice(0,10)}.csv`);
+    showToast('CSV gerado ✓', 'success');
+  });
+
+  // Modal
+  setupFinanceiroModal();
+
+  // FAB — só sócios podem criar
+  const fab = document.getElementById('btn-novo-lancamento');
+  if (!Auth.isSocio()) {
+    fab.style.display = 'none';
+  } else {
+    fab.addEventListener('click', () => openFinanceiroModal(null));
+  }
+}
+
+function setupFinanceiroModal() {
+  const modal = document.getElementById('modal-financeiro');
+  const form  = document.getElementById('form-financeiro');
+
+  document.getElementById('close-modal-fin').addEventListener('click', () => modal.classList.add('hidden'));
+  document.getElementById('cancel-modal-fin').addEventListener('click', () => modal.classList.add('hidden'));
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.add('hidden'); });
+
+  // Alternar imóvel/projeto
+  document.getElementById('fin-tipo-imovel').addEventListener('click', () => setFinTipo('imovel'));
+  document.getElementById('fin-tipo-projeto').addEventListener('click', () => setFinTipo('projeto'));
+
+  // Auto-preenche paid_date quando status = pago
+  document.getElementById('fin-status').addEventListener('change', (e) => {
+    const paidEl = document.getElementById('fin-paid');
+    if (e.target.value === 'pago' && !paidEl.value) {
+      paidEl.value = new Date().toISOString().slice(0, 10);
+    }
+  });
+
+  // Excluir
+  document.getElementById('btn-fin-delete').addEventListener('click', async () => {
+    const id = document.getElementById('fin-edit-id').value;
+    if (!id) return;
+    if (!confirm('Excluir este lançamento? Esta ação não pode ser desfeita.')) return;
+    try {
+      await Finances.remove(id);
+      showToast('Lançamento excluído', 'success');
+      modal.classList.add('hidden');
+      loadFinanceiro();
+    } catch (err) {
+      showToast('Erro ao excluir', 'error');
+      console.error(err);
+    }
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('fin-error');
+    errEl.classList.add('hidden');
+
+    const id = document.getElementById('fin-edit-id').value;
+    const propertyId = finTipoVinculo === 'imovel'  ? document.getElementById('fin-imovel').value  : '';
+    const projectId  = finTipoVinculo === 'projeto' ? document.getElementById('fin-projeto').value : '';
+
+    if (!propertyId && !projectId) {
+      errEl.textContent = 'Selecione um imóvel ou uma grande obra.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+
+    const fields = {
+      propertyId: propertyId || null,
+      projectId:  projectId  || null,
+      kind:        document.getElementById('fin-kind').value,
+      category:    document.getElementById('fin-category').value,
+      description: document.getElementById('fin-description').value.trim(),
+      amount:      document.getElementById('fin-amount').value,
+      dueDate:     document.getElementById('fin-due').value || null,
+      paidDate:    document.getElementById('fin-paid').value || null,
+      status:      document.getElementById('fin-status').value,
+      supplier:    document.getElementById('fin-supplier').value.trim(),
+      notes:       document.getElementById('fin-notes').value.trim()
+    };
+
+    if (!fields.description || !fields.amount) {
+      errEl.textContent = 'Descrição e valor são obrigatórios.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+
+    try {
+      if (id) {
+        await Finances.update(id, fields);
+        showToast('Lançamento atualizado ✓', 'success');
+      } else {
+        await Finances.create(fields);
+        showToast('Lançamento criado ✓', 'success');
+      }
+      modal.classList.add('hidden');
+      loadFinanceiro();
+    } catch (err) {
+      errEl.textContent = 'Erro: ' + (err.message || 'tente novamente');
+      errEl.classList.remove('hidden');
+      console.error(err);
+    }
+  });
+}
+
+function setFinTipo(tipo) {
+  finTipoVinculo = tipo;
+  document.getElementById('fin-imovel').classList.toggle('hidden', tipo === 'projeto');
+  document.getElementById('fin-projeto').classList.toggle('hidden', tipo === 'imovel');
+  document.getElementById('fin-tipo-imovel').className  = `btn btn-sm ${tipo === 'imovel'  ? 'btn-primary' : 'btn-outline'}`;
+  document.getElementById('fin-tipo-projeto').className = `btn btn-sm ${tipo === 'projeto' ? 'btn-primary' : 'btn-outline'}`;
+}
+
+async function openFinanceiroModal(item) {
+  const isSocio = Auth.isSocio();
+  const modal = document.getElementById('modal-financeiro');
+  const form  = document.getElementById('form-financeiro');
+  const title = document.getElementById('modal-fin-title');
+  const delBtn = document.getElementById('btn-fin-delete');
+
+  form.reset();
+  document.getElementById('fin-error').classList.add('hidden');
+
+  // Popula selects
+  await Properties.populateSelects(['fin-imovel']);
+  await Projects.populateSelect('fin-projeto');
+
+  if (item) {
+    // Editar
+    title.textContent = isSocio ? 'Editar Lançamento' : 'Detalhes do Lançamento';
+    document.getElementById('fin-edit-id').value = item.id;
+    document.getElementById('fin-kind').value        = item.kind;
+    document.getElementById('fin-category').value    = item.category;
+    document.getElementById('fin-description').value = item.description || '';
+    document.getElementById('fin-amount').value      = item.amount;
+    document.getElementById('fin-supplier').value    = item.supplier || '';
+    document.getElementById('fin-due').value         = item.due_date ? item.due_date.slice(0,10) : '';
+    document.getElementById('fin-paid').value        = item.paid_date ? item.paid_date.slice(0,10) : '';
+    // Status: se for "atrasado" (computado), mostra como "pendente" no select
+    const selStatus = item.status === 'atrasado' ? 'pendente' : item.status;
+    document.getElementById('fin-status').value      = selStatus;
+    document.getElementById('fin-notes').value       = item.notes || '';
+
+    if (item.project_id) {
+      setFinTipo('projeto');
+      document.getElementById('fin-projeto').value = item.project_id;
+    } else {
+      setFinTipo('imovel');
+      document.getElementById('fin-imovel').value = item.property_id || '';
+    }
+
+    delBtn.classList.toggle('hidden', !isSocio);
+  } else {
+    // Novo
+    title.textContent = 'Novo Lançamento';
+    document.getElementById('fin-edit-id').value = '';
+    document.getElementById('fin-kind').value = 'despesa';
+    document.getElementById('fin-category').value = 'material';
+    document.getElementById('fin-status').value = 'pendente';
+    setFinTipo('imovel');
+    delBtn.classList.add('hidden');
+  }
+
+  // Desabilita form para responsável (read-only)
+  const formDisabled = !isSocio;
+  form.querySelectorAll('input, select, textarea').forEach(el => {
+    if (el.type !== 'hidden') el.disabled = formDisabled;
+  });
+  form.querySelector('button[type="submit"]').style.display = formDisabled ? 'none' : '';
+  document.getElementById('fin-tipo-imovel').disabled  = formDisabled;
+  document.getElementById('fin-tipo-projeto').disabled = formDisabled;
+
+  modal.classList.remove('hidden');
 }
 
 // ---- Image Viewer ----

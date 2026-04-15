@@ -39,7 +39,7 @@ const Projects = (() => {
     return data;
   }
 
-  async function create({ name, description, location, status, startDate, endDate }) {
+  async function create({ name, description, location, status, startDate, endDate, budget }) {
     const { data, error } = await supabase
       .from('projects')
       .insert({
@@ -49,6 +49,7 @@ const Projects = (() => {
         status: status || 'em_andamento',
         start_date: startDate || null,
         end_date: endDate || null,
+        budget: (budget == null || budget === '') ? null : Number(budget),
         created_by: Auth.getUser()?.id
       })
       .select().single();

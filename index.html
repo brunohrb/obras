@@ -121,6 +121,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
         Imóveis
       </button>
+      <button class="dropdown-item" id="menu-financeiro">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        Financeiro
+      </button>
       <button class="dropdown-item" id="menu-usuarios" style="display:none">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
         Usuários
@@ -309,6 +313,52 @@
         </button>
       </div>
 
+      <!-- VIEW: FINANCEIRO (dashboard) -->
+      <div id="view-financeiro" class="view">
+        <div id="financeiro-summary"></div>
+
+        <div class="filter-bar">
+          <div class="filter-tabs" id="filter-fin-status">
+            <button class="filter-tab active" data-fstatus="todos">Todos</button>
+            <button class="filter-tab" data-fstatus="pendente">Em aberto</button>
+            <button class="filter-tab" data-fstatus="atrasado">Atrasados</button>
+            <button class="filter-tab" data-fstatus="pago">Pagos</button>
+          </div>
+          <div class="filter-row">
+            <select id="filter-fin-scope" class="select-filter">
+              <option value="">Todas as obras / imóveis</option>
+            </select>
+            <select id="filter-fin-kind" class="select-filter">
+              <option value="">Despesas e receitas</option>
+              <option value="despesa">Só despesas</option>
+              <option value="receita">Só receitas</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="financeiro-by-project" class="fin-section"></div>
+        <div id="financeiro-by-category" class="fin-section"></div>
+
+        <h3 class="fin-section-title">Lançamentos</h3>
+        <div id="list-financeiro" class="fin-list">
+          <div class="empty-state" id="empty-financeiro">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+            <p>Nenhum lançamento ainda</p>
+          </div>
+        </div>
+
+        <div class="fin-actions-bar">
+          <button class="btn btn-outline btn-sm" id="btn-fin-export">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Exportar CSV
+          </button>
+        </div>
+
+        <button class="fab" id="btn-novo-lancamento" title="Novo lançamento">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>
+
     </main>
 
     <!-- BOTTOM NAV -->
@@ -448,8 +498,113 @@
             <input type="date" id="projeto-end">
           </div>
         </div>
+        <div class="form-group">
+          <label>Orçamento previsto (R$)</label>
+          <input type="number" id="projeto-budget" step="0.01" min="0" placeholder="Opcional — valor total previsto">
+        </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline" id="cancel-modal-projeto">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Lançamento Financeiro -->
+  <div id="modal-financeiro" class="modal-overlay hidden">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-fin-title">Novo Lançamento</h3>
+        <button class="btn-icon" id="close-modal-fin">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <form id="form-financeiro">
+        <input type="hidden" id="fin-edit-id">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo *</label>
+            <select id="fin-kind" required>
+              <option value="despesa">💸 Despesa</option>
+              <option value="receita">💰 Receita</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Categoria *</label>
+            <select id="fin-category" required>
+              <option value="material">🧱 Material</option>
+              <option value="mao_de_obra">👷 Mão de obra</option>
+              <option value="servico">🔧 Serviço</option>
+              <option value="equipamento">🛠️ Equipamento</option>
+              <option value="taxas">📄 Taxas / impostos</option>
+              <option value="transporte">🚚 Transporte</option>
+              <option value="projeto">📐 Projeto</option>
+              <option value="outros">📦 Outros</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Vincular a *</label>
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <button type="button" class="btn btn-primary btn-sm" id="fin-tipo-imovel">Imóvel</button>
+            <button type="button" class="btn btn-outline btn-sm" id="fin-tipo-projeto">Grande Obra</button>
+          </div>
+          <select id="fin-imovel">
+            <option value="">Selecione o imóvel</option>
+          </select>
+          <select id="fin-projeto" class="hidden" style="margin-top:8px">
+            <option value="">Selecione a grande obra</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Descrição *</label>
+          <input type="text" id="fin-description" placeholder="Ex: Compra de cimento 50 sacos" required maxlength="160">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Valor (R$) *</label>
+            <input type="number" id="fin-amount" step="0.01" min="0" placeholder="0,00" required>
+          </div>
+          <div class="form-group">
+            <label>Fornecedor / pagador</label>
+            <input type="text" id="fin-supplier" placeholder="Ex: Depósito São João">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Vencimento</label>
+            <input type="date" id="fin-due">
+          </div>
+          <div class="form-group">
+            <label>Pago em</label>
+            <input type="date" id="fin-paid">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Status *</label>
+          <select id="fin-status" required>
+            <option value="pendente">Pendente</option>
+            <option value="pago">Pago</option>
+            <option value="cancelado">Cancelado</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Observações</label>
+          <textarea id="fin-notes" rows="2" placeholder="Notas, número de NF, etc."></textarea>
+        </div>
+
+        <div id="fin-error" class="error-msg hidden"></div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-danger btn-sm hidden" id="btn-fin-delete">Excluir</button>
+          <button type="button" class="btn btn-outline" id="cancel-modal-fin">Cancelar</button>
           <button type="submit" class="btn btn-primary">Salvar</button>
         </div>
       </form>
@@ -466,6 +621,7 @@
   <script src="js/projects.js"></script>
   <script src="js/requests.js"></script>
   <script src="js/notifications.js"></script>
+  <script src="js/finances.js"></script>
   <script src="js/app.js"></script>
 
 </body>
