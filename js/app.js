@@ -445,7 +445,10 @@ function translateError(msg) {
 
 // ---- Dashboard ----
 
+let _dashboardSeq = 0;
+
 async function loadDashboard() {
+  const seq = ++_dashboardSeq;
   const list = document.getElementById('list-pendencias');
   const empty = document.getElementById('empty-pendencias');
   list.querySelectorAll('.pendencia-card').forEach(c => c.remove());
@@ -453,6 +456,10 @@ async function loadDashboard() {
   try {
     // Uma única busca (usa cache de 45s) — filtragem local
     const allReqs = await Requests.list({});
+
+    if (seq !== _dashboardSeq) return; // chamada obsoleta, descarta
+
+    list.querySelectorAll('.pendencia-card').forEach(c => c.remove());
 
     // Stats sempre sobre todos
     document.getElementById('stat-pendente').textContent =
@@ -592,6 +599,7 @@ function setupNovaForm() {
       Requests.clearPendingPhotos();
       form.reset();
       document.getElementById('photo-preview').innerHTML = '';
+      setLoading(btn, false);
       navigateTo('dashboard');
     } catch (err) {
       errEl.textContent = 'Erro ao salvar: ' + err.message;
@@ -864,14 +872,14 @@ async function openProjetoDetalhe(projectId) {
     `;
   } catch (err) { header.innerHTML = ''; }
 
-  // Filtros do projeto
+  // Filtros do projeto — usa onclick para evitar acúmulo de listeners
   document.querySelectorAll('#filter-status-projeto .filter-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
+    tab.onclick = () => {
       document.querySelectorAll('#filter-status-projeto .filter-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       filterProjetoStatus = tab.dataset.status;
       loadProjetoPendencias(projectId);
-    });
+    };
   });
 
   // Botão nova pendência dentro do projeto
@@ -883,11 +891,18 @@ async function openProjetoDetalhe(projectId) {
   loadProjetoPendencias(projectId);
 }
 
+let _projetoSeq = 0;
+
 async function loadProjetoPendencias(projectId) {
+  const seq = ++_projetoSeq;
   const listEl = document.getElementById('list-projeto-pendencias');
   listEl.innerHTML = '';
   try {
     let reqs = await Requests.list({});
+
+    if (seq !== _projetoSeq) return; // chamada obsoleta, descarta
+
+    listEl.innerHTML = '';
     reqs = reqs.filter(r => r.project_id === projectId);
     if (filterProjetoStatus !== 'todos') reqs = reqs.filter(r => r.status === filterProjetoStatus);
 
