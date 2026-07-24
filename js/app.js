@@ -140,7 +140,12 @@ function updateUserUI(profile) {
 
 // ---- Setup eventos ----
 
+let _appSetupDone = false;
+
 function setupApp() {
+  if (_appSetupDone) return;
+  _appSetupDone = true;
+
   // Header
   document.getElementById('btn-notif').addEventListener('click', () => navigateTo('notificacoes'));
   document.getElementById('btn-back').addEventListener('click', goBack);
