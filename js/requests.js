@@ -173,21 +173,17 @@ const Requests = (() => {
     const previewEl = document.getElementById('photo-preview');
     if (previewEl) previewEl.innerHTML = '';
 
-    document.getElementById('btn-camera')?.addEventListener('click', () => {
-      document.getElementById('input-camera').click();
-    });
-    document.getElementById('btn-galeria')?.addEventListener('click', () => {
-      document.getElementById('input-galeria').click();
-    });
+    // Usa onclick/onchange para evitar acúmulo de listeners a cada visita
+    const btnCamera = document.getElementById('btn-camera');
+    const btnGaleria = document.getElementById('btn-galeria');
+    const inputCamera = document.getElementById('input-camera');
+    const inputGaleria = document.getElementById('input-galeria');
 
-    document.getElementById('input-camera')?.addEventListener('change', (e) => {
-      handleFileSelect(e.target.files);
-      e.target.value = '';
-    });
-    document.getElementById('input-galeria')?.addEventListener('change', (e) => {
-      handleFileSelect(e.target.files);
-      e.target.value = '';
-    });
+    if (btnCamera) btnCamera.onclick = () => inputCamera?.click();
+    if (btnGaleria) btnGaleria.onclick = () => inputGaleria?.click();
+
+    if (inputCamera) inputCamera.onchange = (e) => { handleFileSelect(e.target.files); e.target.value = ''; };
+    if (inputGaleria) inputGaleria.onchange = (e) => { handleFileSelect(e.target.files); e.target.value = ''; };
   }
 
   function handleFileSelect(files) {
